@@ -16,7 +16,6 @@ import matplotlib
 matplotlib.use('Agg')
 
 import numpy as np
-import pickle
 import cv2
 
 import torch
@@ -38,31 +37,6 @@ from utils.timer import Timer
 # OpenCL may be enabled by default in OpenCV3; disable it because it's not
 # thread safe and causes unwanted GPU memory allocations.
 cv2.ocl.setUseOpenCL(False)
-
-
-
-def get_boxes_center(cls_boxes, cls_segms, cls_keyps, n):
-    [boxes, _, _, _] = vis_utils.convert_from_cls_format(cls_boxes, cls_segms, cls_keyps)
-    if boxes is None:
-        #print('image '+str(n) + ' has no boxes')
-        return np.array([0,0,0,0])
-    #print('image '+str(n) + ' has '+str(len(boxes))+' boxes')
-    areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
-    sorted_inds = np.argsort(-areas)
-    
-    all_boxes=np.array([n, 0, 0, 0, 0])
-    
-    
-    for i in sorted_inds:
-        bbox = boxes[i, :4]
-        score = boxes[i, -1]
-        if score > 0.9:
-            #print(bbox)
-            all_boxes = np.vstack((all_boxes,np.hstack((n,bbox))))
-    all_boxes = all_boxes[1:]
-    #print('the box is: ', all_boxes)
-    return all_boxes
-            
 
 
 def parse_args():
@@ -98,7 +72,7 @@ def parse_args():
         help='directory to save demo results',
         default="infer_outputs")
     parser.add_argument(
-        '--merge_pdfs', type=distutils.util.strtobool, default=False)
+        '--merge_pdfs', type=distutils.util.strtobool, default=True)
 
     args = parser.parse_args()
 
@@ -162,30 +136,20 @@ def main():
     else:
         imglist = args.images
     num_images = len(imglist)
-    imglist.sort()
-   
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
-    n=0
-    final_boxes = np.array([0,0,0,0,0])
+
     for i in xrange(num_images):
         print('img', i)
         im = cv2.imread(imglist[i])
         assert im is not None
 
         timers = defaultdict(Timer)
-        
+
         cls_boxes, cls_segms, cls_keyps = im_detect_all(maskRCNN, im, timers=timers)
-        
-        current_boxes = get_boxes_center(cls_boxes, cls_segms, cls_keyps,n)
-        
-        
-        if current_boxes.sum() != 0:
-            final_boxes=np.vstack((final_boxes, current_boxes))
-        n+=1
+
         im_name, _ = os.path.splitext(os.path.basename(imglist[i]))
-        print(final_boxes)
-        '''vis_utils.vis_one_image(
+        vis_utils.vis_one_image(
             im[:, :, ::-1],  # BGR -> RGB for visualization
             im_name,
             args.output_dir,
@@ -197,10 +161,8 @@ def main():
             show_class=True,
             thresh=0.7,
             kp_thresh=2
-        )'''
-    with open('../../MonoDepth-PyTorch/filename.pickle', 'wb') as handle:
-        pickle.dump(final_boxes, handle, protocol=pickle.HIGHEST_PROTOCOL)
-    
+        )
+
     if args.merge_pdfs and num_images > 1:
         merge_out_path = '{}/results.pdf'.format(args.output_dir)
         if os.path.exists(merge_out_path):
